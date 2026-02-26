@@ -81,11 +81,20 @@ else
     die "Cannot detect operating system."
 fi
 
-# Port 80 check
+# Port 80 check — stop Nginx/Apache if running (we'll configure them ourselves)
 if ss -tlnp | grep -q ':80 '; then
-    die "Port 80 is already in use. Free it before running this script."
+    warn "Port 80 is in use. Attempting to free it..."
+    # Stop known web servers that may occupy port 80
+    systemctl stop nginx 2>/dev/null || true
+    systemctl stop apache2 2>/dev/null || true
+    sleep 1
+    if ss -tlnp | grep -q ':80 '; then
+        die "Port 80 is still in use after stopping nginx/apache2. Free it manually before running this script."
+    fi
+    log "Port 80 freed — OK"
+else
+    log "Port 80 is free — OK"
 fi
-log "Port 80 is free — OK"
 
 # ─────────────────────────── User Input ──────────────────────────────────────
 header "Configuration"

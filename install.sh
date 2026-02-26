@@ -598,9 +598,9 @@ SUDO_PASSWORD=${ADMIN_PASS}
 # Security
 SECRET_KEY=${SECRET_KEY}
 
-# SSL for panel
-UVICORN_SSL_CERTFILE=/var/lib/marzban/certs/cert.pem
-UVICORN_SSL_KEYFILE=/var/lib/marzban/certs/key.pem
+# SSL handled by Nginx reverse proxy — Marzban listens on plain HTTP internally
+# UVICORN_SSL_CERTFILE=/var/lib/marzban/certs/cert.pem
+# UVICORN_SSL_KEYFILE=/var/lib/marzban/certs/key.pem
 
 # Xray
 XRAY_JSON=/var/lib/marzban/xray_config.json
@@ -640,7 +640,7 @@ services:
       - ${MARZBAN_DATA_DIR}:/var/lib/marzban
     depends_on: []
     healthcheck:
-      test: ["CMD", "curl", "-fk", "https://localhost:${MARZBAN_PANEL_PORT}/api/system"]
+      test: ["CMD", "curl", "-f", "http://localhost:${MARZBAN_PANEL_PORT}/api/system"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -759,7 +759,7 @@ server {
 
     # ── Marzban Panel — proxy all panel paths ──
     location /dashboard/ {
-        proxy_pass https://127.0.0.1:${MARZBAN_PANEL_PORT}/dashboard/;
+        proxy_pass http://127.0.0.1:${MARZBAN_PANEL_PORT}/dashboard/;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
@@ -773,7 +773,7 @@ server {
 
     # ── Marzban static assets ──
     location /statics/ {
-        proxy_pass https://127.0.0.1:${MARZBAN_PANEL_PORT}/statics/;
+        proxy_pass http://127.0.0.1:${MARZBAN_PANEL_PORT}/statics/;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
@@ -781,7 +781,7 @@ server {
     }
 
     location /api/ {
-        proxy_pass https://127.0.0.1:${MARZBAN_PANEL_PORT}/api/;
+        proxy_pass http://127.0.0.1:${MARZBAN_PANEL_PORT}/api/;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;

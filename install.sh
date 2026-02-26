@@ -503,16 +503,18 @@ cat > "$MARZBAN_DATA_DIR/xray_config.json" <<XRAY_EOF
       "tag": "HYSTERIA2",
       "listen": "0.0.0.0",
       "port": ${HYSTERIA2_PORT},
-      "protocol": "hysteria2",
+      "protocol": "hysteria",
       "settings": {
-        "obfs": {
-          "type": "salamander",
-          "password": "${SECRET_KEY}"
-        }
+        "clients": []
       },
       "streamSettings": {
-        "network": "hysteria2",
+        "network": "hysteria",
         "security": "tls",
+        "hysteriaSettings": {
+          "version": 2,
+          "congestion": "brutal",
+          "ignoreClientBandwidth": false
+        },
         "tlsSettings": {
           "alpn": [
             "h3"
@@ -522,7 +524,9 @@ cat > "$MARZBAN_DATA_DIR/xray_config.json" <<XRAY_EOF
               "certificateFile": "/var/lib/marzban/certs/cert.pem",
               "keyFile": "/var/lib/marzban/certs/key.pem"
             }
-          ]
+          ],
+          "minVersion": "1.3",
+          "maxVersion": "1.3"
         }
       },
       "sniffing": {
@@ -743,7 +747,7 @@ server {
     # ── Security Headers ──
     add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload" always;
     add_header X-Content-Type-Options nosniff always;
-    add_header X-Frame-Options DENY always;
+    add_header X-Frame-Options SAMEORIGIN always;
     add_header X-XSS-Protection "1; mode=block" always;
     add_header Referrer-Policy no-referrer always;
     # CSP relaxed for Marzban dashboard (React/Vue with inline scripts)
@@ -753,9 +757,23 @@ server {
     root /var/www/html;
     index index.html;
 
-    # ── Marzban Panel (reverse proxy) ──
-    location /dashboard {
-        proxy_pass https://127.0.0.1:${MARZBAN_PANEL_PORT};
+    # ── Marzban Panel — proxy all panel paths ──
+    location /dashboard/ {
+        proxy_pass https://127.0.0.1:${MARZBAN_PANEL_PORT}/dashboard/;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+
+    # Redirect /dashboard to /dashboard/
+    location = /dashboard {
+        return 301 /dashboard/;
+    }
+
+    # ── Marzban static assets ──
+    location /statics/ {
+        proxy_pass https://127.0.0.1:${MARZBAN_PANEL_PORT}/statics/;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
@@ -763,7 +781,7 @@ server {
     }
 
     location /api/ {
-        proxy_pass https://127.0.0.1:${MARZBAN_PANEL_PORT};
+        proxy_pass https://127.0.0.1:${MARZBAN_PANEL_PORT}/api/;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
@@ -772,7 +790,7 @@ server {
 
     # ── Subscription endpoint ──
     location /sub/ {
-        proxy_pass http://127.0.0.1:7879;
+        proxy_pass http://127.0.0.1:7879/sub/;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;

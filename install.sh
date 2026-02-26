@@ -345,6 +345,12 @@ fi
 # ─────────────────────────── SSL Certificate (acme.sh) ───────────────────────
 header "Obtaining SSL Certificate via acme.sh"
 
+# Stop Nginx if running — acme.sh standalone mode needs port 80 free
+if systemctl is-active --quiet nginx 2>/dev/null; then
+    log "Stopping Nginx temporarily for SSL certificate issuance..."
+    systemctl stop nginx
+fi
+
 mkdir -p "$CERT_DIR"
 
 # Install acme.sh
@@ -376,7 +382,7 @@ export PATH="$ACME_DIR:$PATH"
 "$ACME_DIR/acme.sh" --install-cert -d "$USER_DOMAIN" --ecc \
     --key-file       "$CERT_DIR/key.pem" \
     --fullchain-file "$CERT_DIR/cert.pem" \
-    --reloadcmd      "docker restart marzban 2>/dev/null || true" \
+    --reloadcmd      "systemctl reload nginx 2>/dev/null || true; docker restart marzban 2>/dev/null || true" \
     2>&1 | tee -a "$LOG_FILE"
 
 log "SSL certificate obtained and installed"
@@ -824,6 +830,22 @@ nginx -t 2>&1 | tee -a "$LOG_FILE" || die "Nginx configuration test failed"
 systemctl enable nginx
 systemctl restart nginx
 log "Nginx configured and running"
+
+# Switch acme.sh to webroot mode for future renewals (Nginx serves /.well-known/)
+mkdir -p /var/www/html/.well-known/acme-challenge
+"$ACME_DIR/acme.sh" --issue -d "$USER_DOMAIN" \
+    --webroot /var/www/html \
+    --keylength ec-256 \
+    --force \
+    2>&1 | tee -a "$LOG_FILE" || warn "Webroot renewal switch failed, standalone will be used"
+
+# Re-install cert with updated renewal config
+"$ACME_DIR/acme.sh" --install-cert -d "$USER_DOMAIN" --ecc \
+    --key-file       "$CERT_DIR/key.pem" \
+    --fullchain-file "$CERT_DIR/cert.pem" \
+    --reloadcmd      "systemctl reload nginx 2>/dev/null || true; docker restart marzban 2>/dev/null || true" \
+    2>&1 | tee -a "$LOG_FILE"
+log "SSL renewal switched to webroot mode"
 
 # ─────────────────────────── Systemd Service ─────────────────────────────────
 header "Configuring Systemd Auto-start"

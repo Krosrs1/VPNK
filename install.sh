@@ -31,9 +31,10 @@ readonly NGINX_CONF="/etc/nginx/sites-available/marzban"
 readonly LOG_FILE="/var/log/marzban-install.log"
 readonly SWAP_SIZE="1G"
 readonly MIN_RAM_MB=1024
-readonly MARZBAN_PANEL_PORT=8443
-# Xray API port (reserved for future use)
-# readonly XRAY_API_PORT=62050
+readonly MARZBAN_PANEL_PORT=8880
+readonly REALITY_PORT=2053
+readonly HYSTERIA2_PORT=2096
+readonly VLESS_WS_PORT=8080
 
 # ─────────────────────────── Colors & helpers ────────────────────────────────
 RED='\033[0;31m'
@@ -55,9 +56,6 @@ die() { err "$*"; exit 1; }
 
 # Generate a random password (alphanumeric, 20 chars)
 generate_password() { tr -dc 'A-Za-z0-9' </dev/urandom | head -c 20 || true; }
-
-# Generate a random UUID v4
-generate_uuid() { cat /proc/sys/kernel/random/uuid; }
 
 # ─────────────────────────── Pre-flight checks ───────────────────────────────
 header "Pre-flight Checks"
@@ -121,10 +119,11 @@ if [[ "$DOMAIN_IP" != "$SERVER_IP" ]]; then
 fi
 log "Domain $USER_DOMAIN resolves to $SERVER_IP — OK"
 
-# Generate credentials
+# Generate credentials (not logged to file for security)
 ADMIN_USER="admin"
 ADMIN_PASS=$(generate_password)
 SECRET_KEY=$(generate_password)
+info "Credentials generated (saved to /root/.marzban_credentials after install)"
 
 # ─────────────────────────── System Update ───────────────────────────────────
 header "Updating System"
@@ -265,7 +264,8 @@ ufw default allow outgoing
 ufw allow 22/tcp comment 'SSH'
 ufw allow 80/tcp comment 'HTTP'
 ufw allow 443/tcp comment 'HTTPS'
-ufw allow 443/udp comment 'Hysteria2 UDP'
+ufw allow 2053/tcp comment 'VLESS Reality'
+ufw allow 2096/udp comment 'Hysteria2 UDP'
 
 # Rate limiting for SSH (brute-force protection)
 ufw limit 22/tcp comment 'SSH rate limit'
@@ -420,7 +420,7 @@ cat > "$MARZBAN_DATA_DIR/xray_config.json" <<XRAY_EOF
     {
       "tag": "VLESS_REALITY",
       "listen": "0.0.0.0",
-      "port": 443,
+      "port": ${REALITY_PORT},
       "protocol": "vless",
       "settings": {
         "clients": [],
@@ -459,7 +459,7 @@ cat > "$MARZBAN_DATA_DIR/xray_config.json" <<XRAY_EOF
     {
       "tag": "VLESS_WS_TLS",
       "listen": "0.0.0.0",
-      "port": 8080,
+      "port": ${VLESS_WS_PORT},
       "protocol": "vless",
       "settings": {
         "clients": [],
@@ -487,7 +487,7 @@ cat > "$MARZBAN_DATA_DIR/xray_config.json" <<XRAY_EOF
     {
       "tag": "HYSTERIA2",
       "listen": "0.0.0.0",
-      "port": 8443,
+      "port": ${HYSTERIA2_PORT},
       "protocol": "hysteria2",
       "settings": {
         "obfs": {
@@ -663,8 +663,7 @@ if [[ -n "$REALITY_OUTPUT" ]]; then
 
     log "Xray config updated with Reality keys"
 else
-    warn "Could not generate Reality keys automatically. You will need to generate them manually."
-    warn "Run: docker exec marzban /usr/local/bin/xray x25519"
+    die "Failed to generate Reality keys. Marzban container may not be running. Check: docker logs marzban"
 fi
 
 # Restart Marzban to apply the updated xray config
@@ -732,7 +731,8 @@ server {
     add_header X-Frame-Options DENY always;
     add_header X-XSS-Protection "1; mode=block" always;
     add_header Referrer-Policy no-referrer always;
-    add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline';" always;
+    # CSP relaxed for Marzban dashboard (React/Vue with inline scripts)
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' https:;" always;
 
     # ── Masquerade as a normal website ──
     root /var/www/html;
@@ -766,7 +766,7 @@ server {
 
     # ── VLESS WebSocket ──
     location /vless-ws {
-        proxy_pass http://127.0.0.1:8080;
+        proxy_pass http://127.0.0.1:${VLESS_WS_PORT};
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection "upgrade";
@@ -932,16 +932,16 @@ $(echo -e "${GREEN}║${NC}  ${CYAN}Domain:${NC}       ${USER_DOMAIN}")
 $(echo -e "${GREEN}║${NC}  ${CYAN}Server IP:${NC}    ${SERVER_IP}")
 $(echo -e "${GREEN}║${NC}")
 $(echo -e "${GREEN}║${NC}  ${CYAN}Protocols Enabled:${NC}")
-$(echo -e "${GREEN}║${NC}    - VLESS + Reality    (port 443/tcp)")
+$(echo -e "${GREEN}║${NC}    - VLESS + Reality    (port ${REALITY_PORT}/tcp)")
 $(echo -e "${GREEN}║${NC}    - VLESS + WS + TLS   (via nginx /vless-ws)")
-$(echo -e "${GREEN}║${NC}    - Hysteria2          (port 8443/udp)")
+$(echo -e "${GREEN}║${NC}    - Hysteria2          (port ${HYSTERIA2_PORT}/udp)")
 $(echo -e "${GREEN}║${NC}")
 $(echo -e "${GREEN}║${NC}  ${CYAN}SSL Certificate:${NC}")
 $(echo -e "${GREEN}║${NC}    ${CERT_DIR}/cert.pem")
 $(echo -e "${GREEN}║${NC}    ${CERT_DIR}/key.pem")
 $(echo -e "${GREEN}║${NC}    Auto-renew: enabled")
 $(echo -e "${GREEN}║${NC}")
-$(echo -e "${GREEN}║${NC}  ${CYAN}Firewall:${NC}     UFW active (22, 80, 443 allowed)")
+$(echo -e "${GREEN}║${NC}  ${CYAN}Firewall:${NC}     UFW active (22, 80, 443, ${REALITY_PORT}, ${HYSTERIA2_PORT} allowed)")
 $(echo -e "${GREEN}║${NC}  ${CYAN}BBR:${NC}          ${BBR_STATUS}")
 $(echo -e "${GREEN}║${NC}  ${CYAN}Fail2ban:${NC}     active")
 $(echo -e "${GREEN}║${NC}")

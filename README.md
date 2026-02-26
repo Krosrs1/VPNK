@@ -16,7 +16,7 @@ Production-ready bash script for fully automated installation and configuration 
   - Increased file limits
   - IPv6 disabled
 - **Security:**
-  - UFW firewall (only 22, 80, 443 open)
+  - UFW firewall (only 22, 80, 443, 2053, 2096 open)
   - SSH brute-force protection (rate limiting)
   - Fail2ban
   - Nginx security headers
@@ -75,10 +75,11 @@ Credentials are also saved to `/root/.marzban_credentials`.
 |------|----------|---------|
 | 22 | TCP | SSH |
 | 80 | TCP | HTTP (redirect to HTTPS) |
-| 443 | TCP | VLESS+Reality / Nginx HTTPS |
-| 443 | UDP | Hysteria2 |
+| 443 | TCP | Nginx HTTPS (reverse proxy) |
+| 2053 | TCP | VLESS + Reality |
+| 2096 | UDP | Hysteria2 |
 | 8080 | TCP | VLESS+WS (internal, proxied by Nginx) |
-| 8443 | TCP | Marzban panel (internal) |
+| 8880 | TCP | Marzban panel (internal, proxied by Nginx) |
 
 ## Directory Structure
 
